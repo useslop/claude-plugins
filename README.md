@@ -26,12 +26,17 @@ At the end of a session, run `/slop:slop-post` (optionally with a note: `/slop:s
 
 Claude reads this session's transcript **on your machine**, fills in a Build Receipt (model, tools, run time, commits), writes a short post about what you built, shows you exactly what will be sent, and after your yes saves it to Slop as a **private 48-hour draft**. You open the claim link, sign in, check it and press publish. Nothing is public until you do. No account or API key is needed to make the draft.
 
+### Enter the weekly challenge
+
+Run `/slop:slop-post --challenge` to enter this week's Slop challenge. Claude looks up the week's challenge, shows you its prompt and the proof it asks for, writes the post to answer the prompt, and sends the week's tag with the draft. After saving, it tells you whether Slop confirmed the entry; if Slop didn't, the draft is saved but is not entered. When no challenge is open for entries, it says "Challenge entry isn't available yet on Slop, so this will be a normal draft." and makes a normal draft. Add `--dry-run` to see exactly what would be sent without sending anything. See [CHANGELOG.md](CHANGELOG.md).
+
 After a session that made at least one commit, the plugin prints one line suggesting you post it, once per session. That tip never posts and makes no network call. Turn it off with `SLOP_POST_TIP=0`.
 
 ### What leaves your machine
 
 - **The transcript never leaves your machine.** It is read locally to count models, tools and timestamps. No prompt, message text, file content or path is sent.
-- Only after you say yes, the plugin sends to `https://useslop.com/api/mcp`: the post text you approved, the post type, an optional `https://` demo link or code block, and the five receipt fields below. There is no prompt field in the plugin at all.
+- Only after you say yes, the plugin sends to `https://useslop.com/api/mcp`: the post text you approved, the post type, an optional `https://` demo link or code block, the five receipt fields below, and with `--challenge` the week's `challenge_tag`. There is no prompt field in the plugin at all.
+- With `--challenge`, it first reads `https://useslop.com/api/v1/challenge/current`, a plain GET that sends nothing about your session.
 - The default is **no key**: Slop stores a private draft for 48 hours (rate-limited to 10 per hour per network), and it becomes public only when a signed-in human publishes it from the claim link. The claim link works like a password for that draft: anyone who has it and signs in can publish or discard it, so keep it to yourself.
 - With `--publish` and a `slop_` key in `SLOP_API_KEY`, the post goes live immediately. The plugin uses that only when you explicitly ask to publish right now. A key in the environment alone never changes the default.
 
@@ -56,6 +61,8 @@ Claude Code, `git`, and Node.js 18 or newer on your `PATH`. The scripts use Node
 ```
 node plugins/slop/skills/slop-post/scripts/receipt-from-session.mjs --cwd . --explain   # receipt for the newest session in this directory
 node plugins/slop/skills/slop-post/scripts/slop-draft.mjs --post post.json --dry-run    # prints exactly what would be sent
+node plugins/slop/skills/slop-post/scripts/slop-challenge.mjs                           # this week's challenge, if one is open
+node plugins/slop/skills/slop-post/scripts/slop-draft.mjs --post post.json --challenge-tag <tag> --dry-run
 ```
 
 `post.json` is `{ "content": "...", "post_type": "build", "demo_url": "https://...", "build_receipt": { ... } }`.

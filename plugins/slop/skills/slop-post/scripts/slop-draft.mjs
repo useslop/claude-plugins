@@ -8,6 +8,9 @@
 //   node slop-draft.mjs --post post.json             save the private draft
 //   node slop-draft.mjs --post post.json --publish   publish NOW with $SLOP_API_KEY
 //                                                    (only after the human said so)
+//   ... --challenge-tag model-drop                   also enter this week's Slop challenge
+//                                                    (tag from slop-challenge.mjs); Slop echoes
+//                                                    challenge_tag when it accepted the entry
 //
 // post.json: { content, post_type?, demo_url?, code_snippet?, code_language?, build_receipt? }
 // Only those fields are sent. There is deliberately no prompt field: the
@@ -17,8 +20,8 @@ import { readFileSync, realpathSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { validateBuildReceipt } from "./receipt-lib.mjs";
 
-export const PLUGIN_VERSION = "0.1.0";
-const DEFAULT_ENDPOINT = "https://useslop.com/api/mcp";
+export const PLUGIN_VERSION = "0.2.0";
+export const DEFAULT_ENDPOINT = "https://useslop.com/api/mcp";
 const POST_FIELDS = new Set(["content", "post_type", "demo_url", "code_snippet", "code_language", "build_receipt"]);
 const POST_TYPES = new Set(["thought", "build", "review", "question", "tutorial", "launch"]);
 // Slop's own caps (POST /api/v1/posts, lib/post-drafts).
@@ -26,6 +29,15 @@ const MAX_CONTENT = 2000;
 const MAX_CODE = 8000;
 const MAX_CODE_LANGUAGE = 30;
 const MAX_DEMO_URL = 500;
+// Weekly challenge tags (GET /api/v1/challenge/current -> data.tag).
+export const CHALLENGE_TAG_RE = /^[a-z0-9-]{1,40}$/;
+
+export function validateChallengeTag(tag) {
+  if (typeof tag !== "string" || !CHALLENGE_TAG_RE.test(tag)) {
+    return { ok: false, error: `--challenge-tag must be 1 to 40 lowercase letters, digits or dashes (got ${JSON.stringify(String(tag ?? "")).slice(0, 60)})` };
+  }
+  return { ok: true, tag };
+}
 
 export function validatePost(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, error: "post must be a JSON object" };
@@ -99,16 +111,34 @@ export function parseRpcResponse(text, contentType = "") {
   return JSON.parse(text);
 }
 
+// The challenge_tag Slop echoes when it accepted the entry; null means it ignored the tag.
+export function challengeEcho(result, text = "") {
+  const sc = result?.structuredContent ?? {};
+  const tag = sc.challenge_tag ?? sc.data?.challenge_tag ?? (/"challenge_tag"\s*:\s*"([a-z0-9-]{1,40})"/.exec(text) ?? [])[1];
+  return typeof tag === "string" && CHALLENGE_TAG_RE.test(tag) ? tag : null;
+}
+
+export function challengeLine(kind, challenge) {
+  if (challenge.entered) {
+    return kind === "draft"
+      ? `Challenge: Slop accepted the tag "${challenge.tag}". The post enters this week's challenge when you publish it.`
+      : `Challenge: Slop accepted the tag "${challenge.tag}". This post is entered in this week's challenge.`;
+  }
+  return `Challenge: the ${kind === "draft" ? "draft was saved" : "post was published"}, but it is NOT entered in the challenge (Slop didn't confirm the "${challenge.tag}" tag).`;
+}
+
 export function summarizeResult(rpc) {
   if (rpc.error) return { ok: false, error: `${rpc.error.message ?? "JSON-RPC error"}${rpc.error.code ? ` (${rpc.error.code})` : ""}` };
   const r = rpc.result ?? {};
   const text = (Array.isArray(r.content) ? r.content : []).filter((c) => c?.type === "text").map((c) => c.text).join("\n");
   if (r.isError) return { ok: false, error: text || "create_post failed" };
   const sc = r.structuredContent ?? {};
+  const echo = challengeEcho(r, text);
+  const extra = echo ? { challengeTag: echo } : {};
   const claimUrl = sc.claim_url ?? (/https:\/\/useslop\.com\/claim\/[A-Za-z0-9_-]{43}[^\s)]*/.exec(text) ?? [])[0];
-  if (claimUrl) return { ok: true, kind: "draft", claimUrl, expiresAt: sc.expires_at ?? null, text };
+  if (claimUrl) return { ok: true, kind: "draft", claimUrl, expiresAt: sc.expires_at ?? null, text, ...extra };
   const url = sc.url ?? sc.data?.url ?? (/https:\/\/useslop\.com\/post\/[^\s)]+/.exec(text) ?? [])[0];
-  return { ok: true, kind: "published", url: url ?? null, text };
+  return { ok: true, kind: "published", url: url ?? null, text, ...extra };
 }
 
 function parseArgs(argv) {
@@ -119,9 +149,13 @@ function parseArgs(argv) {
     else if (a === "--dry-run") out.dryRun = true;
     else if (a === "--publish") out.publish = true;
     else if (a === "--json") out.json = true;
-    else throw new Error(`unknown argument: ${a}`);
+    else if (a === "--challenge-tag") {
+      out.challengeTag = argv[++i];
+      // Never swallow the next flag (e.g. --dry-run) as the tag.
+      if (out.challengeTag === undefined || out.challengeTag.startsWith("-")) throw new Error("--challenge-tag needs a tag, e.g. --challenge-tag model-drop");
+    } else throw new Error(`unknown argument: ${a}`);
   }
-  if (!out.post) throw new Error("usage: slop-draft.mjs --post <post.json|-> [--dry-run] [--publish] [--json]");
+  if (!out.post) throw new Error("usage: slop-draft.mjs --post <post.json|-> [--dry-run] [--publish] [--json] [--challenge-tag <tag>]");
   return out;
 }
 
@@ -139,7 +173,16 @@ async function main() {
     console.error(`Not sent: ${v.error}`);
     return 1;
   }
-  const req = buildRequest(v.args, { publish: opts.publish });
+  const args = { ...v.args };
+  if (opts.challengeTag !== undefined) {
+    const t = validateChallengeTag(opts.challengeTag);
+    if (!t.ok) {
+      console.error(`Not sent: ${t.error}`);
+      return 1;
+    }
+    args.challenge_tag = t.tag; // sent only when asked for
+  }
+  const req = buildRequest(args, { publish: opts.publish });
 
   if (opts.dryRun) {
     const shown = { ...req.headers };
@@ -158,7 +201,8 @@ async function main() {
     return 1;
   }
   const out = summarizeResult(rpc);
-  if (opts.json) console.log(JSON.stringify(out, null, 2));
+  const challenge = args.challenge_tag && out.ok ? { tag: args.challenge_tag, entered: out.challengeTag === args.challenge_tag } : null;
+  if (opts.json) console.log(JSON.stringify(challenge ? { ...out, challenge } : out, null, 2));
   if (!out.ok) {
     if (!opts.json) console.error(`Slop said no: ${out.error}`);
     return 1;
@@ -170,16 +214,17 @@ async function main() {
     } else {
       console.log(`Published: ${out.url ?? "(no url returned)"}`);
     }
+    if (challenge) console.log(challengeLine(out.kind, challenge));
   }
   return 0;
 }
 
 // Run only when executed directly (the tests import this file). Compare real paths: through a
 // symlink (macOS /tmp -> /private/tmp) import.meta.url and argv[1] differ for the same file.
-function isMainModule() {
+export function isMainModule(metaUrl = import.meta.url) {
   if (!process.argv[1]) return false;
   try {
-    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url));
+    return realpathSync(process.argv[1]) === realpathSync(fileURLToPath(metaUrl));
   } catch {
     return false;
   }

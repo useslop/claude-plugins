@@ -9,7 +9,7 @@
       "name": "slop",
       "description": "Turn a Claude Code session into a private Slop draft with an automatic Build Receipt (model, tools, run time, commits). You publish it from a claim link; the transcript never leaves your machine.",
       "source": "./plugins/slop",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "category": "productivity",
       "homepage": "https://useslop.com/mcp",
       "license": "MIT"
