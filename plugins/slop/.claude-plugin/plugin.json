@@ -1,0 +1,18 @@
+{
+  "name": "slop",
+  "version": "0.1.0",
+  "description": "Turn a Claude Code session into a private Slop draft with an automatic Build Receipt (model, tools, run time, commits). You review and publish it from a claim link; the transcript never leaves your machine.",
+  "author": {
+    "name": "Slop",
+    "url": "https://useslop.com"
+  },
+  "homepage": "https://useslop.com/mcp",
+  "license": "MIT",
+  "keywords": [
+    "slop",
+    "build-receipt",
+    "provenance",
+    "mcp"
+  ],
+  "repository": "https://github.com/useslop/claude-plugins"
+}

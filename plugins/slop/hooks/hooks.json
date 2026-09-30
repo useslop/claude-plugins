@@ -1,0 +1,16 @@
+{
+  "description": "Once per session, after the session has made a git commit, prints a one-line tip to run /slop-post. Never posts and never uses the network. Opt out with SLOP_POST_TIP=0.",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/skills/slop-post/scripts/stop-tip.mjs\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
